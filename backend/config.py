@@ -43,6 +43,13 @@ class Settings:
     ingest_max_chunks: int | None = (
         int(os.getenv("INGEST_MAX_CHUNKS", "0")) or None
     )
+    retrieval_relevance_threshold: float = float(
+        os.getenv("RETRIEVAL_RELEVANCE_THRESHOLD", "0.6")
+    )
+    retrieval_utility_threshold: float = float(
+        os.getenv("RETRIEVAL_UTILITY_THRESHOLD", "0.6")
+    )
+    grader_max_retries: int = int(os.getenv("GRADER_MAX_RETRIES", "2"))
 
 
 settings = Settings()
