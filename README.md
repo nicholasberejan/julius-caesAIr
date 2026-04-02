@@ -113,6 +113,9 @@ python scripts/ingest_corpus.py \
 python -m backend.app
 ```
 
+If port `5000` is already in use, set `FLASK_PORT` in `.env` (for example `5001`)
+and restart the server.
+
 5. Test the API:
 
 ```bash
@@ -132,6 +135,35 @@ curl -X POST http://127.0.0.1:5000/api/chat \
   - persistent chat sessions
   - richer citation rendering
   - production vector stores
+
+## Frontend (Next.js)
+
+The frontend lives in `frontend/` and proxies requests through Next.js to avoid CORS.
+
+Prerequisite: Node.js `>=20.9.0`.
+
+1. Install dependencies:
+
+```bash
+cd frontend
+npm install
+```
+
+2. Configure the backend URL:
+
+```bash
+cp .env.local.example .env.local
+```
+
+If your Flask API runs on a different port, update `BACKEND_BASE_URL` accordingly.
+
+3. Start the frontend:
+
+```bash
+npm run dev
+```
+
+4. Open `http://localhost:3000` and send a test question.
 
 ## Environment Variables
 

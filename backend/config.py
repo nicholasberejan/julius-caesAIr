@@ -18,6 +18,8 @@ class Settings:
     project_root: Path = Path(__file__).resolve().parent.parent
     flask_env: str = os.getenv("FLASK_ENV", "development")
     flask_debug: bool = os.getenv("FLASK_DEBUG", "true").lower() == "true"
+    flask_host: str = os.getenv("FLASK_HOST", "127.0.0.1")
+    flask_port: int = int(os.getenv("FLASK_PORT", "5000"))
     openai_api_key: str | None = os.getenv("OPENAI_API_KEY") or None
     openai_chat_model: str = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
     openai_embedding_model: str = os.getenv(
