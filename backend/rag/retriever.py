@@ -25,7 +25,17 @@ class CaesarRetriever:
     def retrieve(self, question: str, top_k: int | None = None) -> list[Document]:
         """Retrieve relevant documents for a user question."""
         k = top_k or settings.default_top_k
-        return self.vectorstore.similarity_search(question, k=k)
+        try:
+            results = self.vectorstore.similarity_search_with_score(question, k=k)
+        except AttributeError:
+            return self.vectorstore.similarity_search(question, k=k)
+
+        documents: list[Document] = []
+        for doc, score in results:
+            doc.metadata = dict(doc.metadata)
+            doc.metadata["score"] = float(score)
+            documents.append(doc)
+        return documents
 
 
 def serialize_sources(documents: list[Document]) -> list[RetrievedSource]:
