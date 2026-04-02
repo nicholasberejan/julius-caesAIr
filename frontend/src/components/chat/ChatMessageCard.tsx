@@ -25,6 +25,9 @@ export function ChatMessageCard({ message }: ChatMessageCardProps) {
                 <div className="font-medium">
                   {source.source}
                   {source.page ? ` (page ${source.page})` : ""}
+                  {typeof source.score === "number"
+                    ? ` • score ${source.score.toFixed(3)}`
+                    : ""}
                 </div>
                 <div className="mt-1 italic">{source.excerpt}</div>
               </li>

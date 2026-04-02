@@ -78,7 +78,8 @@ class CaesarChatPipeline:
             f"{CAESAR_SYSTEM_PROMPT}\n\n"
             f"Question: {question}\n\n"
             f"Retrieved context:\n{context}\n\n"
-            "Answer in first-person present tense as Caesar using only the retrieved material."
+            "Answer in first-person present tense as Caesar using only the retrieved material. "
+            "Paraphrase and synthesize; do not quote unless explicitly requested."
         )
         response = llm.invoke(prompt)
         return response.content.strip()
