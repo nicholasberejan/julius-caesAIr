@@ -95,21 +95,6 @@ class CaesarChatPipeline:
                 ),
                 sources=[],
             )
-        if topic.topic == "ambiguous":
-            return ChatResult(
-                question=question,
-                answer=(
-                    "Your question is too vague for a sound reply. "
-                    "Name the people, place, or event, and I will answer plainly."
-                ),
-                status="needs_clarification",
-                classification=ClassificationResult(
-                    allowed=True,
-                    reason=f"Topic router: {topic.topic}. {topic.reason}",
-                ),
-                sources=[],
-            )
-
         classification = ClassificationResult(
             allowed=True, reason=f"Topic router: {topic.topic}. {topic.reason}"
         )
@@ -129,6 +114,21 @@ class CaesarChatPipeline:
             )
 
         graded_documents = self._grade_retrieval(question, documents)
+        if not graded_documents and topic.topic == "ambiguous":
+            return ChatResult(
+                question=question,
+                answer=(
+                    "Your question is too vague for a sound reply. "
+                    "Name the people, place, or event, and I will answer plainly."
+                ),
+                status="needs_clarification",
+                classification=classification,
+                sources=[],
+            )
+        if not graded_documents:
+            # Fall back to the ungraded retrieval results rather than failing hard.
+            graded_documents = documents
+
         if not graded_documents:
             return ChatResult(
                 question=question,
@@ -284,12 +284,18 @@ class CaesarChatPipeline:
     ) -> tuple[str, str]:
         """Generate an answer with post-hoc graders and retry logic."""
         max_retries = max(0, settings.grader_max_retries)
+        tangential = self._is_tangential(question, sources)
         for attempt in range(max_retries + 1):
             answer = self._generate_answer(
-                question=question, sources=sources, retry_index=attempt
+                question=question,
+                sources=sources,
+                retry_index=attempt,
+                tangential=tangential,
             )
             if not settings.openai_api_key:
                 return answer, "answered"
+            if tangential:
+                return answer, "answered_partial"
 
             hallucination = self._invoke_json(
                 prompt=(
@@ -302,8 +308,11 @@ class CaesarChatPipeline:
                 if attempt < max_retries:
                     continue
                 return (
-                    "I will not claim what my writings do not support. "
-                    "Ask in another way, and I shall answer if the record allows.",
+                    (
+                        f"{answer}\n\nIs this the matter you meant?"
+                        if tangential
+                        else answer
+                    ),
                     "failed_hallucination",
                 )
 
@@ -318,21 +327,27 @@ class CaesarChatPipeline:
                 if attempt < max_retries:
                     continue
                 return (
-                    "I have not answered your question as I should. "
-                    "Ask more plainly, and I will respond in full.",
+                    (
+                        f"{answer}\n\nIs this the matter you meant?"
+                        if tangential
+                        else answer
+                    ),
                     "failed_quality",
                 )
 
             return answer, "answered"
 
         return (
-            "I will not claim what my writings do not support. "
-            "Ask in another way, and I shall answer if the record allows.",
+            f"{answer}\n\nIs this the matter you meant?" if tangential else answer,
             "failed_generation",
         )
 
     def _generate_answer(
-        self, question: str, sources: list[RetrievedSource], retry_index: int = 0
+        self,
+        question: str,
+        sources: list[RetrievedSource],
+        retry_index: int = 0,
+        tangential: bool = False,
     ) -> str:
         """Generate an answer using the configured LLM or a retrieval fallback."""
         if not sources:
@@ -356,22 +371,63 @@ class CaesarChatPipeline:
                 "\n\nDouble-check grounding: only include claims supported by the sources. "
                 "If support is unclear, say so plainly."
             )
+        tangential_note = ""
+        if tangential:
+            tangential_note = (
+                "\n\nThe sources are only tangentially related. "
+                "Give the best partial answer you can and end with a short clarifying question. "
+                "If not tangential, do not ask a follow-up question."
+            )
         prompt = (
             f"{CAESAR_SYSTEM_PROMPT}\n\n"
             f"Question: {question}\n\n"
             f"Retrieved context:\n{context}\n\n"
             "Answer in first-person present tense as Caesar using only the retrieved material. "
             "Paraphrase and synthesize; do not quote unless explicitly requested."
+            f"{tangential_note}"
             f"{retry_note}"
         )
         response = llm.invoke(prompt)
-        return response.content.strip()
+        content = response.content.strip()
+        if not tangential:
+            return self._strip_trailing_followup(content)
+        return content
 
     def _format_sources(self, sources: list[RetrievedSource]) -> str:
         return "\n\n".join(
             f"Source: {source.source} (page {source.page})\n{source.excerpt}"
             for source in sources
         )
+
+    @staticmethod
+    def _strip_trailing_followup(text: str) -> str:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not lines:
+            return text
+        last = lines[-1]
+        followup_markers = (
+            "would you like",
+            "is this",
+            "do you wish",
+            "shall i",
+            "do you want",
+            "would you wish",
+        )
+        if last.endswith("?") and any(marker in last.lower() for marker in followup_markers):
+            lines = lines[:-1]
+        return "\n\n".join(lines).strip()
+
+    @staticmethod
+    def _is_tangential(question: str, sources: list[RetrievedSource]) -> bool:
+        """Heuristic: treat broad questions with weak lexical overlap as tangential."""
+        if not sources:
+            return False
+        lowered_question = question.lower()
+        key_terms = [term for term in ("rome", "roman", "senate", "city", "war", "warfare", "battle") if term in lowered_question]
+        if not key_terms:
+            return False
+        combined = " ".join(source.excerpt.lower() for source in sources)
+        return not any(term in combined for term in key_terms)
 
     @staticmethod
     def _fallback_answer(sources: list[RetrievedSource]) -> str:
