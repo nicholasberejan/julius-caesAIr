@@ -66,6 +66,7 @@ export default function Home() {
         return;
       }
 
+      // `response.body` is a ReadableStream from the Fetch API.
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";

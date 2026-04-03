@@ -1,4 +1,5 @@
 import type { ChatMessage } from "@/components/chat/types";
+import { TypingIndicator } from "@/components/chat/TypingIndicator";
 
 type ChatMessageCardProps = {
   message: ChatMessage;
@@ -19,11 +20,7 @@ export function ChatMessageCard({ message }: ChatMessageCardProps) {
       }
     >
       {showTypingIndicator ? (
-        <div className="flex items-center gap-1 text-zinc-500">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-400" />
-          <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-400 [animation-delay:150ms]" />
-          <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-400 [animation-delay:300ms]" />
-        </div>
+        <TypingIndicator />
       ) : (
         <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
       )}
