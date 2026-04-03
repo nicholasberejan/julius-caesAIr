@@ -1,10 +1,16 @@
 import type { ChatMessage } from "@/components/chat/types";
+import { TypingIndicator } from "@/components/chat/TypingIndicator";
 
 type ChatMessageCardProps = {
   message: ChatMessage;
 };
 
 export function ChatMessageCard({ message }: ChatMessageCardProps) {
+  const showTypingIndicator =
+    message.role === "assistant" &&
+    message.isStreaming &&
+    message.content.trim().length === 0;
+
   return (
     <div
       className={
@@ -13,7 +19,11 @@ export function ChatMessageCard({ message }: ChatMessageCardProps) {
           : "self-start rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900"
       }
     >
-      <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+      {showTypingIndicator ? (
+        <TypingIndicator />
+      ) : (
+        <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+      )}
       {message.role === "assistant" &&
       message.sources &&
       message.sources.length > 0 ? (
