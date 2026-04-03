@@ -12,6 +12,12 @@ import {
   loadSessionSnapshot,
   persistSessionSnapshot,
 } from "@/lib/chat-session-storage";
+import {
+  appendMessage,
+  createSession,
+  sortSessionsByUpdatedAt,
+  updateAssistantMessage as updateAssistantMessageInSession,
+} from "@/lib/chat-session-utils";
 
 export default function Home() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -52,17 +58,6 @@ export default function Home() {
     });
   }, [sessions, activeSessionId, isHydrated]);
 
-  const createSession = (): ChatSession => {
-    const now = new Date().toISOString();
-    return {
-      id: crypto.randomUUID(),
-      title: "New chat",
-      messages: [],
-      createdAt: now,
-      updatedAt: now,
-    };
-  };
-
   const handleNewChat = () => {
     const newSession = createSession();
     setSessions((prev) => [newSession, ...prev]);
@@ -96,19 +91,7 @@ export default function Home() {
   };
 
   const appendMessageToSession = (sessionId: string, message: ChatMessage) => {
-    updateSessionById(sessionId, (session) => {
-      const nextMessages = [...session.messages, message];
-      const nextTitle =
-        session.title === "New chat" && message.role === "user"
-          ? message.content.slice(0, 48)
-          : session.title;
-      return {
-        ...session,
-        title: nextTitle,
-        messages: nextMessages,
-        updatedAt: new Date().toISOString(),
-      };
-    });
+    updateSessionById(sessionId, (session) => appendMessage(session, message));
   };
 
   const updateAssistantMessage = (
@@ -116,16 +99,9 @@ export default function Home() {
     assistantId: string,
     updater: (message: ChatMessage) => ChatMessage
   ) => {
-    updateSessionById(sessionId, (session) => {
-      const nextMessages = session.messages.map((message) =>
-        message.id === assistantId ? updater(message) : message
-      );
-      return {
-        ...session,
-        messages: nextMessages,
-        updatedAt: new Date().toISOString(),
-      };
-    });
+    updateSessionById(sessionId, (session) =>
+      updateAssistantMessageInSession(session, assistantId, updater)
+    );
   };
 
   const sendMessage = async () => {
@@ -235,10 +211,7 @@ export default function Home() {
   return (
     <div className="flex min-h-screen gap-6 bg-zinc-50 text-zinc-900">
       <SessionSidebar
-        sessions={[...sessions].sort(
-          (a, b) =>
-            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-        )}
+        sessions={sortSessionsByUpdatedAt(sessions)}
         activeSessionId={activeSessionId}
         onSelect={setActiveSessionId}
         onNew={handleNewChat}
