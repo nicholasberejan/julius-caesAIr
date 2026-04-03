@@ -23,3 +23,11 @@ export type ChatMessage = {
   sources?: ChatSource[];
   isStreaming?: boolean;
 };
+
+export type ChatSession = {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: string;
+  updatedAt: string;
+};
