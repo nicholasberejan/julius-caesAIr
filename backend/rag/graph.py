@@ -152,6 +152,117 @@ class CaesarChatPipeline:
             sources=sources,
         )
 
+    def stream(self, question: str, session_id: str | None = None):
+        """Stream a chat response as incremental deltas and a final payload."""
+        guardrails = self._run_guardrails(question)
+        if not guardrails.passes:
+            yield {
+                "error": "guardrails_blocked",
+                "message": (
+                    "I will not engage with words that are base or abusive. "
+                    "Speak with honor if you would be heard."
+                ),
+                "status": "refused_guardrails",
+            }
+            return
+
+        topic = self._route_topic(question)
+        if topic.topic in {"out_of_scope", "meta", "ambiguous"}:
+            if topic.topic == "out_of_scope":
+                answer = CAESAR_LIMITATION_PROMPT
+                status = "refused_out_of_scope"
+            elif topic.topic == "meta":
+                answer = (
+                    "I speak from my own commentaries and the record of my campaigns. "
+                    "Ask of the peoples, battles, or decisions of my age, and I will answer."
+                )
+                status = "answered_meta"
+            else:
+                answer = (
+                    "Your question is too vague for a sound reply. "
+                    "Name the people, place, or event, and I will answer plainly."
+                )
+                status = "needs_clarification"
+            yield {
+                "done": True,
+                "answer": answer,
+                "status": status,
+                "classifier": {
+                    "allowed": topic.topic != "out_of_scope",
+                    "reason": f"Topic router: {topic.topic}. {topic.reason}",
+                },
+                "sources": [],
+            }
+            return
+
+        classification = ClassificationResult(
+            allowed=True, reason=f"Topic router: {topic.topic}. {topic.reason}"
+        )
+
+        try:
+            documents = self._retrieve_with_rewrite(question)
+        except (FileNotFoundError, RuntimeError):
+            yield {
+                "done": True,
+                "answer": (
+                    "My library has not yet been prepared for consultation. "
+                    "Build the corpus index before seeking an answer from my writings."
+                ),
+                "status": "index_unavailable",
+                "classifier": {
+                    "allowed": True,
+                    "reason": classification.reason,
+                },
+                "sources": [],
+            }
+            return
+
+        graded_documents = self._grade_retrieval(question, documents)
+        if not graded_documents:
+            graded_documents = documents
+
+        sources = serialize_sources(graded_documents)
+        sources_payload = self._serialize_source_payload(sources)
+        tangential = self._is_tangential(question, sources)
+
+        if not settings.openai_api_key:
+            answer = self._fallback_answer(sources) if sources else (
+                "I find no passage in my writings that answers this plainly. "
+                "Ask again with a matter closer to the campaigns, politics, or peoples I described."
+            )
+            yield {
+                "done": True,
+                "answer": answer,
+                "status": "answered" if sources else "no_relevant_sources",
+                "classifier": {
+                    "allowed": True,
+                    "reason": classification.reason,
+                },
+                "sources": sources_payload,
+            }
+            return
+
+        full_answer = ""
+        for delta in self._stream_answer(
+            question=question, sources=sources, tangential=tangential
+        ):
+            full_answer += delta
+            yield {"delta": delta}
+
+        if not tangential:
+            full_answer = self._strip_trailing_followup(full_answer)
+
+        yield {
+            "done": True,
+            "answer": full_answer,
+            "status": "answered_partial" if tangential else "answered",
+            "classifier": {
+                "allowed": True,
+                "reason": classification.reason,
+            },
+            "sources": sources_payload,
+        }
+
     def _run_guardrails(self, question: str) -> GuardrailsResult:
         """Check for inappropriate content before any retrieval or generation."""
         if not settings.openai_api_key:
@@ -393,11 +504,52 @@ class CaesarChatPipeline:
             return self._strip_trailing_followup(content)
         return content
 
+    def _stream_answer(
+        self, *, question: str, sources: list[RetrievedSource], tangential: bool
+    ):
+        """Stream answer tokens from the LLM."""
+        llm = ChatOpenAI(
+            model=settings.openai_chat_model,
+            api_key=settings.openai_api_key,
+            temperature=0.2,
+        )
+        context = self._format_sources(sources)
+        tangential_note = ""
+        if tangential:
+            tangential_note = (
+                "\n\nThe sources are only tangentially related. "
+                "Give the best partial answer you can and end with a short clarifying question. "
+                "If not tangential, do not ask a follow-up question."
+            )
+        prompt = (
+            f"{CAESAR_SYSTEM_PROMPT}\n\n"
+            f"Question: {question}\n\n"
+            f"Retrieved context:\n{context}\n\n"
+            "Answer in first-person present tense as Caesar using only the retrieved material. "
+            "Paraphrase and synthesize; do not quote unless explicitly requested."
+            f"{tangential_note}"
+        )
+        for chunk in llm.stream(prompt):
+            if chunk.content:
+                yield chunk.content
+
     def _format_sources(self, sources: list[RetrievedSource]) -> str:
         return "\n\n".join(
             f"Source: {source.source} (page {source.page})\n{source.excerpt}"
             for source in sources
         )
+
+    @staticmethod
+    def _serialize_source_payload(sources: list[RetrievedSource]) -> list[dict]:
+        return [
+            {
+                "source": source.source,
+                "page": source.page,
+                "excerpt": source.excerpt,
+                "score": source.score,
+            }
+            for source in sources
+        ]
 
     @staticmethod
     def _strip_trailing_followup(text: str) -> str:

@@ -21,4 +21,5 @@ export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   sources?: ChatSource[];
+  isStreaming?: boolean;
 };

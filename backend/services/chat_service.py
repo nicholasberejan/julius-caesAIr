@@ -33,3 +33,7 @@ class ChatService:
                 for source in result.sources
             ],
         }
+
+    def stream_reply(self, message: str, session_id: str | None = None):
+        """Stream a chat response payload as incremental events."""
+        return self.pipeline.stream(question=message, session_id=session_id)

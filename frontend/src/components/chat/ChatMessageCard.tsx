@@ -5,6 +5,11 @@ type ChatMessageCardProps = {
 };
 
 export function ChatMessageCard({ message }: ChatMessageCardProps) {
+  const showTypingIndicator =
+    message.role === "assistant" &&
+    message.isStreaming &&
+    message.content.trim().length === 0;
+
   return (
     <div
       className={
@@ -13,7 +18,15 @@ export function ChatMessageCard({ message }: ChatMessageCardProps) {
           : "self-start rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900"
       }
     >
-      <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+      {showTypingIndicator ? (
+        <div className="flex items-center gap-1 text-zinc-500">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-400" />
+          <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-400 [animation-delay:150ms]" />
+          <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-400 [animation-delay:300ms]" />
+        </div>
+      ) : (
+        <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+      )}
       {message.role === "assistant" &&
       message.sources &&
       message.sources.length > 0 ? (
