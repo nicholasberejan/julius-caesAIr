@@ -1,18 +1,52 @@
 "use client";
 
 import { useState } from "react";
+import toast from "react-hot-toast";
 
-import { ChatError } from "@/components/chat/ChatError";
 import { ChatHeader } from "@/components/chat/ChatHeader";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessages } from "@/components/chat/ChatMessages";
 import type { ChatMessage, ChatResponse } from "@/components/chat/types";
 
+const FALLBACK_ERROR_MESSAGE =
+  "Something went wrong while contacting the assistant.";
+
+function toReadableError(value: unknown): string {
+  if (typeof value !== "string") {
+    return FALLBACK_ERROR_MESSAGE;
+  }
+
+  const message = value.trim();
+  if (!message) {
+    return FALLBACK_ERROR_MESSAGE;
+  }
+
+  if (/^request failed with status \d+$/i.test(message)) {
+    return FALLBACK_ERROR_MESSAGE;
+  }
+
+  return message;
+}
+
+async function extractErrorMessage(response: Response) {
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    const payload = (await response.json()) as {
+      error?: unknown;
+      message?: unknown;
+    };
+
+    return toReadableError(payload.error ?? payload.message);
+  }
+
+  return toReadableError(await response.text());
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const sendMessage = async () => {
     const trimmed = input.trim();
@@ -20,7 +54,6 @@ export default function Home() {
       return;
     }
 
-    setError(null);
     setIsLoading(true);
 
     const userMessage: ChatMessage = {
@@ -46,7 +79,7 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
+        throw new Error(await extractErrorMessage(response));
       }
 
       if (!response.body) {
@@ -98,29 +131,33 @@ export default function Home() {
             continue;
           }
           const payload = JSON.parse(line.replace("data: ", ""));
-            if (payload.delta) {
-              updateAssistant(payload.delta);
-            } else if (payload.done) {
-              setMessages((prev) =>
-                prev.map((message) =>
-                  message.id === assistantId
-                    ? {
-                        ...message,
-                        content: payload.answer ?? message.content,
-                        sources: payload.sources ?? message.sources,
-                        isStreaming: false,
-                      }
-                    : message
-                )
-              );
-            } else if (payload.error) {
-            throw new Error(payload.message ?? "Streaming error");
+          if (payload.delta) {
+            updateAssistant(payload.delta);
+          } else if (payload.done) {
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === assistantId
+                  ? {
+                      ...message,
+                      content: payload.answer ?? message.content,
+                      sources: payload.sources ?? message.sources,
+                      isStreaming: false,
+                    }
+                  : message
+              )
+            );
+          } else if (payload.error) {
+            throw new Error(
+              toReadableError(payload.error ?? payload.message)
+            );
           }
         }
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      setError(message);
+      const message = toReadableError(
+        err instanceof Error ? err.message : undefined
+      );
+      toast.error(message);
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === assistantId ? { ...msg, isStreaming: false } : msg
@@ -140,8 +177,6 @@ export default function Home() {
           <div className="flex flex-1 flex-col gap-4 overflow-y-auto">
             <ChatMessages messages={messages} />
           </div>
-
-          <ChatError message={error} />
 
           <ChatInput
             value={input}
